@@ -48,7 +48,7 @@ if 'insulin_info' not in st.session_state:
 # --- PEE --- #
 
 def add_record(session_name,additions_name,records_file,contents = {}):
-	current_time = pendulum.now()
+	current_time = pendulum.now("US/Eastern")
 	contents["local_datetime"] = current_time.to_day_datetime_string()
 	contents["iso8601_datetime"] = current_time.to_iso8601_string()
 	contents["identifier"] = str(uuid.uuid1())
