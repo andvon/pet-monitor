@@ -1,220 +1,281 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
-from time import time
+import json
 from pathlib import Path,PurePath
-import pytz
+import pendulum
+import uuid
 
-INSULIN_CSV = Path("data/insulin_data.csv")
-POO_CSV = Path("data/poo_data.csv")
-PEE_CSV = Path("data/pee_data.csv")
-FOOD_CSV = Path("data/food_data.csv")
-WATER_CSV = Path("data/water_data.csv")
+def load_data(record_file: PurePath):
+	if record_file.is_file():
+		with open(record_file,"r") as input_file:
+			records = json.load(input_file)
+	else:
+		records = []
+	return records
 
-EST = pytz.timezone('US/Eastern')
+def report_latest_entry(label,session_name,idx):
+	if st.session_state[session_name] and st.session_state[session_name][0][idx]:
+		out_value = st.session_state[session_name][0][idx]
+	else:
+		out_value = None
+	st.metric(label,out_value)
+	return
+
+PEE_JSON = Path("data/pee_records.json")
+POO_JSON = Path("data/poo_records.json")
+WATER_JSON = Path("data/water_records.json")
+FOOD_JSON = Path("data/food_records.json")
+INSULIN_JSON = Path("data/insulin_records.json")
+
+if 'pee_info' not in st.session_state:
+	st.session_state.pee_info = load_data(PEE_JSON)
+	st.session_state.pee_additions = []
+
+if 'poo_info' not in st.session_state:
+	st.session_state.poo_info = load_data(POO_JSON)
+	st.session_state.poo_additions = []
+if 'water_info' not in st.session_state:
+	st.session_state.water_info = load_data(WATER_JSON)
+	st.session_state.water_additions = []
+if 'food_info' not in st.session_state:
+	st.session_state.food_info = load_data(FOOD_JSON)
+	st.session_state.food_additions = []
+if 'insulin_info' not in st.session_state:
+	st.session_state.insulin_info = load_data(INSULIN_JSON)
+	st.session_state.insulin_additions = []
+
+# --- PEE --- #
+
+def add_record(session_name,additions_name,records_file,contents = {}):
+	current_time = pendulum.now()
+	contents["local_datetime"] = current_time.to_day_datetime_string()
+	contents["iso8601_datetime"] = current_time.to_iso8601_string()
+	contents["identifier"] = str(uuid.uuid1())
+	
+	st.session_state[session_name].insert(0,contents)
+	st.session_state[additions_name].insert(0,contents)
+	with open(records_file,"w") as output_file:
+		json.dump(st.session_state[session_name],output_file,indent = 4)
+	#st.success("Success!")
+	return
+
+def remove_record(session_name,additions_name,records_file):
+	if not st.session_state[additions_name]:
+		#st.write("Nothing to remove")
+		return
+	st.session_state[session_name].pop(0)
+	st.session_state[additions_name].pop(0)
+	with open(records_file,"w") as output_file:
+		json.dump(st.session_state[session_name],output_file,indent = 4)
+	#st.write("Removed!")
+	return
+
+
+def module_pee():
+	pee_placeholder = st.empty()
+	col1,col2 = st.columns(2)
+	with st.container():
+		with col1:
+			pee_button = st.button(
+				"Record Pee",
+				on_click=add_record,
+				kwargs = dict(
+					session_name = "pee_info",
+					additions_name = "pee_additions",
+					records_file = PEE_JSON
+					)
+				)
+		with col2:
+			undo_pee_button = st.button(
+				"Undo Pee",
+				on_click=remove_record,
+				kwargs = dict(
+					session_name = "pee_info",
+					additions_name = "pee_additions",
+					records_file = PEE_JSON
+					)
+				)
+		report_latest_entry("Pee Run","pee_info","local_datetime")
+	return
+	#st.write(st.session_state.pee_info)
+
+# --- POO --- #
+
+def module_poo():
+	poo_size = st.selectbox("Size",("tadpole","goldfish","guppy","tuna","salmon","baby shamu","shamu","mega shamu"),key = "poo_size")
+	poo_type = st.selectbox("Type",("normal","runny","other"),key = "poo_type")
+	col1,col2 = st.columns(2)
+	with st.container():
+		with col1:
+			poo_button = st.button(
+				"Record Poo",
+				on_click=add_record,
+				kwargs = dict(
+					session_name = "poo_info",
+					additions_name = "poo_additions",
+					records_file = POO_JSON,
+					contents = dict(
+						size = st.session_state["poo_size"],
+						type = st.session_state["poo_type"]
+					)
+					)
+				)
+		with col2:
+			undo_poo_button = st.button(
+				"Undo Poo",
+				on_click=remove_record,
+				kwargs = dict(
+					session_name = "poo_info",
+					additions_name = "poo_additions",
+					records_file = POO_JSON
+					)
+				)
+		report_latest_entry("Poo Run","poo_info","local_datetime")
+	return
+	#st.write(st.session_state.pee_info)
+
+# --- Water --- #
+
+def module_water():
+	report_latest_entry("Last Changed","water_info","local_datetime")
+	st.checkbox("Is this measured?", value=False, key="measured_water_change")
+	if st.session_state["measured_water_change"]:
+		st.number_input("Water remaining in bowl (mL)", min_value=0, max_value=1000, value=0, step=100,key = "remaining_ml")
+		st.number_input("Water added (mL)", min_value=0, max_value=1500, value=1000, step=100,key = "added_ml")
+	col1,col2 = st.columns(2)
+	with st.container():
+		with col1:
+			st.button(
+				"Record Water Change",
+				on_click=add_record,
+				kwargs = dict(
+					session_name = "water_info",
+					additions_name = "water_additions",
+					records_file = WATER_JSON,
+					contents = dict(
+						remaining_ml = st.session_state["remaining_ml"] if st.session_state["measured_water_change"] else None,
+						added_ml = st.session_state["added_ml"] if st.session_state["measured_water_change"] else None
+					)
+					)
+				)
+		with col2:
+			st.button(
+				"Undo Water Change",
+				on_click=remove_record,
+				kwargs = dict(
+					session_name = "water_info",
+					additions_name = "water_additions",
+					records_file = WATER_JSON
+					)
+				)
+	return
+
+# --- FOOD --- #
+
+def module_food():
+	report_latest_entry("Last Changed","food_info","local_datetime")
+	st.number_input("Amount of food given (in cups)", min_value=0.0, max_value=2.0, value=0.5, step=0.1,key = "food_cups")
+	col1,col2 = st.columns(2)
+	with st.container():
+		with col1:
+			st.button(
+				"Record Feeding Frenzy",
+				on_click=add_record,
+				kwargs = dict(
+					session_name = "food_info",
+					additions_name = "food_additions",
+					records_file = FOOD_JSON,
+					contents = dict(
+						food_cups = st.session_state["food_cups"] if st.session_state["food_cups"] else None
+					)
+					)
+				)
+		with col2:
+			st.button(
+				"Undo Feeding Frenzy",
+				on_click=remove_record,
+				kwargs = dict(
+					session_name = "food_info",
+					additions_name = "food_additions",
+					records_file = FOOD_JSON
+					)
+				)
+	return
+
+# --- INSULIN --- #
+
+def module_insulin():
+	report_latest_entry("Last Injection","insulin_info","local_datetime")
+	st.subheader("Report new injection")
+	st.number_input("Insulin Dose (Units)", min_value=0.0, max_value=100.0, value=5.0, step=0.5,key = "insulin_dose")
+	st.selectbox("Insulin Brand",["Novolin"],key = "insulin_brand")
+	st.selectbox("Who administered it?",["AVH","JVH","DVH","RVH"],key = "insulin_user")
+	col1,col2 = st.columns(2)
+	with st.container():
+		with col1:
+			st.button(
+				"Record Injection",
+				on_click=add_record,
+				kwargs = dict(
+					session_name = "insulin_info",
+					additions_name = "insulin_additions",
+					records_file = INSULIN_JSON,
+					contents = dict(
+						insulin_dose_units = st.session_state["insulin_dose"] if st.session_state["insulin_dose"] else None,
+						insulin_brand = st.session_state["insulin_brand"] if st.session_state["insulin_brand"] else None,
+						insulin_user = st.session_state["insulin_user"] if st.session_state["insulin_user"] else None,
+					)
+					)
+				)
+		with col2:
+			st.button(
+				"Undo Insulin Injection",
+				on_click=remove_record,
+				kwargs = dict(
+					session_name = "insulin_info",
+					additions_name = "insulin_additions",
+					records_file = INSULIN_JSON
+					)
+				)
+	return
+
+# --- APP --- #
+
 overview_tab,restroom_tab, feeding_tab, insulin_tab = st.tabs(["Overview","Restroom","Feeding","Insulin"])
-
-
-
-if 'pee_df' not in st.session_state:
-	if not PEE_CSV.is_file():
-		st.session_state.pee_df = pd.read_csv("templates/pee_data.csv")
-	else:
-		st.session_state.pee_df = pd.read_csv(PEE_CSV)
-st.session_state.pee_df['date'] = pd.to_datetime(st.session_state.pee_df['date'])
-st.session_state.last_pee = st.session_state.pee_df.date[0] if len(st.session_state.pee_df.index) > 0 else None
-st.session_state.last_pee_diff = f'{round(((datetime.now(EST) - st.session_state.pee_df.date[0]).total_seconds() / 3600),2)} Hours' if len(st.session_state.pee_df.index) > 0 else None
-
-if 'poo_df' not in st.session_state:
-	if not POO_CSV.is_file():
-		st.session_state.poo_df = pd.read_csv("templates/poo_data.csv")
-	else:
-		st.session_state.poo_df = pd.read_csv(POO_CSV)
-st.session_state.poo_df['date'] = pd.to_datetime(st.session_state.poo_df['date'])
-st.session_state.last_poo = st.session_state.poo_df.date[0] if len(st.session_state.poo_df.index) > 0 else None
-st.session_state.last_poo_diff = f'{round(((datetime.now(EST) - st.session_state.poo_df.date[0]).total_seconds() / 3600),2)} Hours' if len(st.session_state.poo_df.index) > 0 else None
-
-if 'food_df' not in st.session_state:
-	if not FOOD_CSV.is_file():
-		st.session_state.food_df = pd.read_csv("templates/food_data.csv")
-	else:
-		st.session_state.food_df = pd.read_csv(FOOD_CSV)
-st.session_state.food_df['date'] = pd.to_datetime(st.session_state.food_df['date'])
-st.session_state.last_feeding = st.session_state.food_df.date[0] if len(st.session_state.food_df.index) > 0 else None
-st.session_state.last_feeding_diff = f'{round(((datetime.now(EST) - st.session_state.food_df.date[0]).total_seconds() / 3600),2)} Hours' if len(st.session_state.food_df.index) > 0 else None
-
-if 'water_df' not in st.session_state:
-	if not WATER_CSV.is_file():
-		st.session_state.water_df = pd.read_csv("templates/water_data.csv")
-	else:
-		st.session_state.water_df = pd.read_csv(WATER_CSV)
-st.session_state.water_df['date'] = pd.to_datetime(st.session_state.water_df['date'])
-st.session_state.last_watering = st.session_state.water_df.date[0] if len(st.session_state.water_df.index) > 0 else None
-st.session_state.last_watering_diff = f'{round(((datetime.now(EST) - st.session_state.water_df.date[0]).total_seconds() / 3600),2)} Hours' if len(st.session_state.water_df.index) > 0 else None
-
-if 'insulin_df' not in st.session_state:
-	if not INSULIN_CSV.is_file():
-		st.session_state.insulin_df = pd.read_csv("templates/insulin_data.csv")
-	else:
-		st.session_state.insulin_df = pd.read_csv(INSULIN_CSV)
-st.session_state.insulin_df['date'] = pd.to_datetime(st.session_state.insulin_df['date'])
-st.session_state.last_insulin = st.session_state.insulin_df.date[0] if len(st.session_state.insulin_df.index) > 0 else None
-st.session_state.last_insulin_diff = f'{round(((datetime.now(EST) - st.session_state.insulin_df.date[0]).total_seconds() / 3600),2)} Hours' if len(st.session_state.insulin_df.index) > 0 else None
-
 
 with overview_tab:
 	st.header("Latest Events")
-	with st.container():
-		st.subheader("Dogpark Trips")
-		col1,col2 = st.columns(2)
-		with col1:
-			st.metric("Latest Pee Run", st.session_state.last_pee.strftime("%Y-%m-%d, %H:%M") if st.session_state.last_pee is not None else None)
-		with col2:
-			st.metric("Time since latest pee", st.session_state.last_pee_diff)
-	with st.container():
-		col1,col2 = st.columns(2)
-		with col1:
-			st.metric("Latest Poo Run", st.session_state.last_poo.strftime("%Y-%m-%d, %H:%M") if st.session_state.last_poo is not None else None)
-		with col2:
-			st.metric("Time since latest poo", st.session_state.last_poo_diff)
-	st.write("---------------------")
-	with st.container():
-		st.subheader("Feeding Events")
-		col1,col2 = st.columns(2)
-		with col1:
-			st.metric("Latest Feeding", st.session_state.last_feeding.strftime("%Y-%m-%d, %H:%M") if st.session_state.last_feeding is not None else None)
-		with col2:
-			st.metric("Time since feeding", st.session_state.last_feeding_diff)
-	with st.container():
-		col1,col2 = st.columns(2)
-		with col1:
-			st.metric("Latest Water Change", st.session_state.last_watering.strftime("%Y-%m-%d, %H:%M") if st.session_state.last_watering is not None else None)
-		with col2:
-			st.metric("Time since last water change", st.session_state.last_watering_diff)
-	st.write("---------------------")
-	with st.container():
-		st.subheader("Insulin Injections")
-		col1,col2 = st.columns(2)
-		with col1:
-			st.metric("Latest Insulin Injection", st.session_state.last_insulin.strftime("%Y-%m-%d, %H:%M") if st.session_state.last_insulin is not None else None)
-		with col2:
-			st.metric("Time since last injection", st.session_state.last_insulin_diff)
-	st.write("---------------------")
-	
-
-
+	st.write("-----")
+	st.header("Dogpark trips")
+	report_latest_entry("Pee Run","pee_info","local_datetime")
+	report_latest_entry("Poo Run","poo_info","local_datetime")
+	st.write("-----")
+	st.header("Food and Water")
+	report_latest_entry("Feeding Frenzy","food_info","local_datetime")
+	report_latest_entry("Water Change","water_info","local_datetime")
+	st.write("-----")
+	st.header("Insulin Injection")
+	report_latest_entry("Insulin Injection","insulin_info","local_datetime")
+	st.write("-----")
 
 with restroom_tab:
-	with st.container():
-		col1,col2 = st.columns(2)
-		with col1:
-			st.header("Pee")
-			pee_button = st.button("Record Pee")
-			if pee_button:
-				pee_date_time = datetime.now(EST)
-				st.session_state.pee_df = st.session_state.pee_df.append({'date': pee_date_time}, ignore_index=True).sort_values(['date'],ascending = False,ignore_index=True)
-				st.session_state.pee_df.to_csv(PEE_CSV,index = False)
-				st.session_state.last_pee = st.session_state.pee_df.date[0]
-				st.session_state.last_pee_diff = f'{round(((pee_date_time - st.session_state.last_pee).total_seconds() / 3600),2)} Hours'
-
-		with col2:
-			st.header("Poo")
-			poo_button = st.button("Record Poo")
-			poo_size = st.selectbox("Size",("tadpole","goldfish","guppy","tuna","salmon","baby shamu","shamu","mega shamu"))
-			poo_type = st.selectbox("Type",("normal","runny","other"))
-			if poo_button:
-				poo_items = {
-					"date": datetime.now(EST),
-					"size": poo_size,
-					"type": poo_type
-				}
-				st.session_state.poo_df = st.session_state.poo_df.append(poo_items, ignore_index=True).sort_values(['date'],ascending = False,ignore_index=True)
-				st.session_state.poo_df.to_csv(POO_CSV,index = False)
-				st.session_state.last_poo = st.session_state.poo_df.date[0]
-				st.session_state.last_poo_diff = f'{round(((poo_items["date"] - st.session_state.last_poo).total_seconds() / 3600),2)} Hours'
-
-	with st.container():
-		col1,col2 = st.columns(2)
-		with col1:
-			st.subheader("Recent Pee Records")
-			st.write(st.session_state.pee_df.head(10))
-		with col2:
-			st.subheader("Recent Poo Records")
-			st.write(st.session_state.poo_df.head(10))
-
+	st.header("Pee Run")
+	module_pee()
+	st.write("-----")
+	st.header("Poo Run")
+	module_poo()
 
 with feeding_tab:
-	with st.container():
-		col1,col2 = st.columns(2)
-		with col1:
-			st.subheader("Food")
-			food_button = st.button("Record Feeding")
-			food_cups = st.number_input("Food amount (cups)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
-			if food_button:
-				food_items = {
-					"date": datetime.now(EST),
-					"cups": food_cups
-				}
-				st.session_state.food_df = st.session_state.food_df.append(food_items, ignore_index=True).sort_values(['date'],ascending = False,ignore_index=True)
-				st.session_state.food_df.to_csv(FOOD_CSV,index = False)
-				st.session_state.last_feeding = st.session_state.food_df.date[0]
-				st.session_state.last_feeding_diff = f'{round(((food_items["date"] - st.session_state.last_feeding).total_seconds() / 3600),2)} Hours'
-
-		with col2:
-			st.subheader("Water")
-			water_button = st.button("Record Water Change")
-			water_change_type = st.selectbox("Record Type?",("normal","measured"))
-			if water_change_type == "measured":
-				water_remaining_vol = st.number_input("Water remaining in bowl (mL)", min_value=0, max_value=1000, value=0, step=100)
-				water_added_vol = st.number_input("Water added (mL)", min_value=0, max_value=1500, value=1000, step=100)
-			elif water_change_type == "normal":
-				water_remaining_vol = None
-				water_added_vol = 1000
-			if water_button:
-				water_items = {
-					"date": datetime.now(EST),
-					"remaining ml": water_remaining_vol,
-					"added ml": water_added_vol,
-					"record type": water_change_type
-				}
-				st.session_state.water_df = st.session_state.water_df.append(water_items, ignore_index=True).sort_values(['date'],ascending = False,ignore_index=True)
-				st.session_state.water_df.to_csv(WATER_CSV,index = False)
-				st.session_state.last_watering = st.session_state.water_df.date[0]
-				st.session_state.last_watering_diff = f'{round(((water_items["date"] - st.session_state.last_watering).total_seconds() / 3600),2)} Hours'
-	
-	with st.container():
-		col1,col2 = st.columns(2)
-		with col1:
-			st.subheader("Recent Feedings")
-			st.write(st.session_state.food_df.head(10))
-		with col2:
-			st.subheader("Recent Water Changes")
-			st.write(st.session_state.water_df.head(10))
-
+	st.write("-----")
+	st.header("Water")
+	module_water()
+	st.write("-----")
+	st.header("Food")
+	module_food()
 
 with insulin_tab:
-	st.header("Insulin Injections")
-
-	insulin_record = st.button("Record Insulin Injection")
-	insulin_dose = st.number_input("Insulin Dose", min_value=0, max_value=100, value=5, step=1)
-	insulin_brand = st.selectbox("Insulin Brand",["Novolin"])
-	insulin_user = st.selectbox("Who administered it?",["AVH","JVH","DVH","RVH"])
-
-	if insulin_record:
-		# update dataframe state
-		insulin_items = {
-					"date": datetime.now(EST),
-					"dose administered (units)": insulin_dose,
-					"brand": insulin_brand,
-					"user": insulin_user
-				}
-		st.session_state.insulin_df = st.session_state.insulin_df.append(insulin_items, ignore_index=True).sort_values(['date'],ascending = False,ignore_index=True)
-		st.session_state.insulin_df.to_csv(INSULIN_CSV,index = False)
-		st.session_state.last_insulin = st.session_state.insulin_df.date[0]
-		st.session_state.last_insulin_diff = f'{round(((insulin_items["date"] - st.session_state.last_insulin).total_seconds() / 3600),2)} Hours'
-	st.write("--------------")
-	st.subheader("Recent Insulin Injection Records")
-	st.write(st.session_state.insulin_df.head(10))
-
+	st.write("-----")
+	st.header("Insulin")
+	module_insulin()
 
