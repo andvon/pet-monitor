@@ -141,8 +141,8 @@ def module_water():
 	report_latest_entry("Last Changed","water_info","local_datetime")
 	st.checkbox("Is this measured?", value=False, key="measured_water_change")
 	if st.session_state["measured_water_change"]:
-		st.number_input("Water remaining in bowl (mL)", min_value=0, max_value=1000, value=0, step=100,key = "remaining_ml")
-		st.number_input("Water added (mL)", min_value=0, max_value=1500, value=1000, step=100,key = "added_ml")
+		st.number_input("Weight of bowl + water before change (grams)", min_value=0, max_value=1500, value=0, step=100,key = "remaining_water_grams")
+		st.number_input("Weight of bowl + water after change (grams)", min_value=0, max_value=1500, value=1000, step=100,key = "refilled_water_grams")
 	col1,col2 = st.columns(2)
 	with st.container():
 		with col1:
@@ -154,8 +154,8 @@ def module_water():
 					additions_name = "water_additions",
 					records_file = WATER_JSON,
 					contents = dict(
-						remaining_ml = st.session_state["remaining_ml"] if st.session_state["measured_water_change"] else None,
-						added_ml = st.session_state["added_ml"] if st.session_state["measured_water_change"] else None
+						remaining_water_grams = st.session_state["remaining_water_grams"] if st.session_state["measured_water_change"] else None,
+						refilled_water_grams = st.session_state["refilled_water_grams"] if st.session_state["measured_water_change"] else None
 					)
 					)
 				)
